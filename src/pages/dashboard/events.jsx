@@ -164,7 +164,31 @@ const Events = () => {
         });
     }
 
-
+    const downloadTableOfParticipantsAsPDF = () => {
+        const doc = new jsPDF();
+    
+        // Add title
+        const eventName = events.find(event => event._id === currentEvent).title;
+        doc.text('Participants for event "' + eventName + '"', 14, 16);
+    
+        // Define the columns and rows
+        const columns = ["Name", "Phone", "Date"];
+        const rows = participants.map(participant => [
+            participant.name,
+            participant.phone,
+            participant.date
+        ]);
+    
+        // Add table to PDF
+        doc.autoTable({
+            head: [columns],
+            body: rows,
+            startY: 20,
+        });
+    
+        // Save the PDF
+        doc.save(`${currentEvent}.pdf`);
+    };
 
     return (
         <>
