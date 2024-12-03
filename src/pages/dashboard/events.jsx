@@ -11,22 +11,34 @@ import * as Yup from 'yup';
 import { DatePicker } from '@mui/x-date-pickers/DatePicker';
 import { AdapterDateFns } from '@mui/x-date-pickers/AdapterDateFns';
 import { LocalizationProvider } from '@mui/x-date-pickers/LocalizationProvider';
+import withAuth from '../../utils/withAuth';
+import jsPDF from 'jspdf';
+import 'jspdf-autotable';
 
 import 'react-toastify/dist/ReactToastify.css';
+import { add, set } from 'lodash';
+import { doc } from 'prettier';
 
 const Events = () => {
     const [events, setEvents] = useState([]);
     const [modalIsOpen, setModalIsOpen] = useState(false);
     const [participants, setParticipants] = useState([]);
     const [modalIsOpen2, setModalIsOpen2] = useState(false);
+    const [modalIsOpen4, setModalIsOpen4] = useState(false);
     const [newEvent, setNewEvent] = useState({ title: '', date: '', description: '' });
     const [modalIsOpen3, setModalIsOpen3] = useState(false);
+    const [currentEvent, setCurrentEvent] = useState('');
 
     const initialValues = {
         title: '',
         date: null,
         description: '',
     };
+
+    const initialParticipant = {
+        name: '',
+        phone: ''
+    }
 
     const validationSchema = Yup.object().shape({
         title: Yup.string()
@@ -40,6 +52,17 @@ const Events = () => {
             .max(200, 'Description must be less than 200 characters')
             .required('Description is required'),
     });
+
+    const validationSchema2 = Yup.object().shape({
+        name: Yup.string()
+            .min(3, 'Name must be at least 3 characters')
+            .max(50, 'Name must be less than 50 characters')
+            .required('Name is required'),
+        phone: Yup.string()
+            .min(10, 'Phone number must be at least 10 characters')
+            .required('Phone number is required'),
+    });
+
 
     useEffect(() => {
         axios.get('/events')
@@ -82,8 +105,9 @@ const Events = () => {
         return description.length > 100 ? description.substring(0, 100) + '...' : description;
     };
 
-    const showParticipants = (participants) => {
+    const showParticipants = (participants, id) => {
         setParticipants(participants);
+        setCurrentEvent(id);
         setModalIsOpen2(true);
     };
 
@@ -96,11 +120,83 @@ const Events = () => {
         setModalIsOpen3(true);
     };
 
+    const addParticipantModal = () => {
+        setModalIsOpen2(false);
+        setModalIsOpen4(true);
+    }
+
+    const addParticipant = (values, { setSubmitting }) => {
+        axios.post('/events/addParticipant', {
+            id: currentEvent,
+            participant: {
+                name: values.name,
+                phone: values.phone,
+            }
+        })
+        .then(response => {
+            // Assuming the response contains the updated list of participants
+            const updatedEvents = response.data;
+            setEvents(updatedEvents);
+            setModalIsOpen4(false);
+            toast.success('Participant added successfully!');
+        })
+        .catch(error => {
+            console.error('There was an error adding the participant!', error);
+            toast.error('There was an error adding the participant!');
+        });
+        setSubmitting(false);
+    };
+
+    const handleDeleteParticipant = (participantId) => {
+        axios.post('/events/removeParticipant', {
+            id: currentEvent,
+            participantId
+        })
+        .then(response => {
+            const updatedEvents = response.data;
+            setEvents(updatedEvents);
+            setParticipants(participants.filter(participant => participant._id !== participantId));
+            toast.success('Participant deleted successfully!');
+        })
+        .catch(error => {
+            console.error('There was an error deleting the participant!', error);
+            toast.error('There was an error deleting the participant!');
+        });
+    }
+
+    const downloadTableOfParticipantsAsPDF = () => {
+        const doc = new jsPDF();
+    
+        // Add title
+        const eventName = events.find(event => event._id === currentEvent).title;
+        doc.text('Participants for event "' + eventName + '"', 14, 16);
+    
+        // Define the columns and rows
+        const columns = ["Name", "Phone", "Date"];
+        const rows = participants.map(participant => [
+            participant.name,
+            participant.phone,
+            participant.date
+        ]);
+    
+        // Add table to PDF
+        doc.autoTable({
+            head: [columns],
+            body: rows,
+            startY: 20,
+        });
+    
+        // Save the PDF
+        doc.save(`${currentEvent}.pdf`);
+    };
+
     return (
         <>
         <div style={{ padding: '16px' }}>
-            <Typography variant="h4" gutterBottom>Events</Typography>
-            <Button variant="contained" color="primary" onClick={() => setModalIsOpen(true)}>Add Event</Button>
+            <div style={{"display": "flex", "alignItems" : "center", "justifyContent": "space-between"}}>
+                <Typography variant="h4" gutterBottom>Events</Typography>
+                <Button variant="contained" color="primary" onClick={() => setModalIsOpen(true)}>Add Event</Button>
+            </div>
             <Grid container spacing={3} style={{ marginTop: '16px' }}>
                 {events.map(event => (
                     <Grid item xs={12} md={6} lg={4} key={event.id}>
@@ -113,7 +209,7 @@ const Events = () => {
                             <CardActions>
                                 <Button size="small" color="primary" startIcon={<EditOutlined />} onClick={() => handleEdit(event._id)}>Edit</Button>
                                 <Button size="small" style={{ color: 'red' }} startIcon={<DeleteOutlined />} onClick={() => handleDelete(event._id)}>Delete</Button>
-                                <Button size="small" color="secondary" startIcon={<TeamOutlined />} onClick={() => showParticipants(event.participants)}>Participants ( {event.participants.length} )</Button>
+                                <Button size="small" color="secondary" startIcon={<TeamOutlined />} onClick={() => showParticipants(event.participants, event._id)}>Participants ( {event.participants.length} )</Button>
                             </CardActions>
                         </Card>
                     </Grid>
@@ -143,7 +239,7 @@ const Events = () => {
                     validationSchema={validationSchema}
                     onSubmit={handleSubmit}
                 >
-                    {({ isSubmitting, setFieldValue }) => (
+                    {({ isSubmitting, setFieldValue}) => (
                         <Form>
                             <Field
                                 as={TextField}
@@ -274,10 +370,121 @@ const Events = () => {
                     )}
                 </Formik>
             </Modal>
+            <Modal
+                isOpen={modalIsOpen2}
+                onRequestClose={() => setModalIsOpen2(false)}
+                contentLabel="Participants"
+                style={{
+                    content: {
+                        top: '50%',
+                        left: '50%',
+                        right: 'auto',
+                        bottom: 'auto',
+                        marginRight: '-50%',
+                        transform: 'translate(-50%, -50%)',
+                        padding: '16px',
+                        maxWidth: '600px',
+                        width: '100%',
+                        
+                    }
+                }}
+            >
+                
+                <div style={{"display":"flex", "alignItems" : "center", "justifyContent" : "space-between", "padding": "10px"}}>
+                    <Typography variant="h5" gutterBottom>Participants</Typography>
+                    <div style={{"display":"flex", "alignItems": "center", "gap": "10px"}}>
+                        <Button variant="contained" color="primary" onClick={() => addParticipantModal()} >Add Participant</Button>
+                        <Button variant="contained" color="primary" onClick={downloadTableOfParticipantsAsPDF}>Download PDF</Button>
+                    </div>
+                </div>
+                <TableContainer component={Paper} sx={{maxHeight: '600px', overflowY: 'scroll'}}>
+                    <Table>
+                        <TableHead>
+                            <TableRow>
+                                <TableCell>Name</TableCell>
+                                <TableCell>Phone</TableCell>
+                                <TableCell>Date</TableCell>
+                                <TableCell>Actions</TableCell>
+                            </TableRow>
+                        </TableHead>
+                        <TableBody>
+                            {participants.map(participant => (
+                                <TableRow key={participant._id}>
+                                    <TableCell>{participant.name}</TableCell>
+                                    <TableCell>{participant.phone}</TableCell>
+                                    <TableCell>{participant.date}</TableCell>
+                                    <TableCell>
+                                        <Button size="small" style={{ color: 'red' }} startIcon={<DeleteOutlined />} onClick={() => handleDeleteParticipant(participant._id)}>Delete</Button>
+                                    </TableCell>
+                                </TableRow>
+                            ))}
+                        </TableBody>
+                    </Table>
+                </TableContainer>
+            </Modal>
+
+            <Modal
+                isOpen={modalIsOpen4}
+                onRequestClose={() => setModalIsOpen4(false)}
+                contentLabel="Add Participant"
+                style={{
+                    content: {
+                        top: '50%',
+                        left: '50%',
+                        right: 'auto',
+                        bottom: 'auto',
+                        marginRight: '-50%',
+                        transform: 'translate(-50%, -50%)',
+                        padding: '16px',
+                        maxWidth: '500px',
+                        width: '100%'
+                    }
+                }}
+            >
+                <Typography variant="h5" gutterBottom >Add Participant</Typography>
+                <Formik
+                    initialValues={initialParticipant}
+                    validationSchema={validationSchema2}
+                    onSubmit={addParticipant}
+                >
+                    {({ isSubmitting, setFieldValue }) => (
+                        <Form>
+                            <Field
+                                as={TextField}
+                                label="Name"
+                                name="name"
+                                fullWidth
+                                margin="normal"
+                                id="-name"
+                                helperText={<ErrorMessage name="name" />}
+                            />
+                            <Field
+                                as={TextField}
+                                label="Phone"
+                                name="phone"
+                                fullWidth
+                                margin="normal"
+                                id="-phone"
+                                helperText={<ErrorMessage name="phone" />}
+                            />
+                            <ErrorMessage name="date" component="div" style={{ color: 'red' }} />
+                            <Button
+                                type="submit"
+                                variant="contained"
+                                color="primary"
+                                style={{ marginTop: '16px' }}
+                                disabled={isSubmitting}
+                            >
+                                Add Participant
+                            </Button>
+                        </Form>
+                    )}
+                </Formik>
+            </Modal>
             <ToastContainer />
         </div>
         </>
     );
 };
 
-export default Events;
+export default withAuth(Events);

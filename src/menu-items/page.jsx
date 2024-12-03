@@ -49,14 +49,6 @@ const pages2 = {
       target: true
     },
     {
-      id: 'participants',
-      title: 'Participants',
-      type: 'item',
-      url: '/participants',
-      icon: icons.TeamOutlined,
-      target: true
-    },
-    {
       id: 'logout',
       title: 'Logout',
       type: 'item',
